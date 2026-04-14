@@ -3,7 +3,7 @@ import os
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError
 
 # ================= GOOGLE SHEETS =================
 def connect_sheet():
@@ -39,8 +39,7 @@ def scrape_karirhub():
 
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="en-US"
+            viewport={"width": 1280, "height": 800}
         )
 
         page = context.new_page()
@@ -48,21 +47,33 @@ def scrape_karirhub():
         print("🌐 Open website...")
         page.goto("https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan", timeout=60000)
 
-        # simulasi user behavior
-        page.mouse.move(100, 200)
-        time.sleep(3)
+        # WAIT STRATEGY (GABUNGAN)
+        try:
+            page.wait_for_selector('a[href*="/lowongan-dalam-negeri/lowongan/"]', timeout=15000)
+            print("✅ Selector ketemu")
+        except TimeoutError:
+            print("⚠️ Selector tidak muncul, pakai fallback delay...")
+            time.sleep(15)
 
-        # scroll pelan (natural)
+        # SCROLL NATURAL
         print("📜 Scrolling...")
-        for _ in range(10):
-            page.mouse.wheel(0, 1000)
+        for _ in range(8):
+            page.mouse.wheel(0, 2000)
             time.sleep(2)
 
-        time.sleep(10)  # tunggu JS render
+        time.sleep(5)
 
         cards = page.query_selector_all('a[href*="/lowongan-dalam-negeri/lowongan/"]')
-
         print(f"📦 Total cards: {len(cards)}")
+
+        # RETRY kalau 0
+        if len(cards) == 0:
+            print("🔁 Retry load ulang...")
+            page.reload()
+            time.sleep(10)
+
+            cards = page.query_selector_all('a[href*="/lowongan-dalam-negeri/lowongan/"]')
+            print(f"📦 Retry cards: {len(cards)}")
 
         for card in cards:
             try:
@@ -71,11 +82,11 @@ def scrape_karirhub():
                 title = card.inner_text().strip()
                 link = "https://karirhub.kemnaker.go.id" + card.get_attribute("href")
 
-                company = parent.query_selector("p")
-                company = company.inner_text() if company else ""
+                company_el = parent.query_selector("p")
+                company = company_el.inner_text() if company_el else ""
 
-                location = parent.query_selector(".text-gray-500")
-                location = location.inner_text() if location else ""
+                location_el = parent.query_selector(".text-gray-500")
+                location = location_el.inner_text() if location_el else ""
 
                 salary = ""
                 for d in parent.query_selector_all("div"):
