@@ -1,9 +1,9 @@
+import requests
 import time
 import os
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from playwright.sync_api import sync_playwright
 
 # =========================
 # GOOGLE SHEETS CONNECT
@@ -27,130 +27,90 @@ def connect_sheet():
 
 
 # =========================
-# SCRAPER FUNCTION
+# FETCH API DATA
 # =========================
-def scrape_karirhub():
-    data = []
+def fetch_jobs():
+    url = "https://karirhub.kemnaker.go.id/api/lowongan?limit=50&page=1"
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
-        )
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
 
-        page = browser.new_page()
+    print("🌐 Fetching API data...")
 
-        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
+    res = requests.get(url, headers=headers, timeout=30)
 
-        print("🌐 Open website...")
-        page.goto(url, timeout=60000)
+    if res.status_code != 200:
+        print("❌ Failed API:", res.status_code)
+        print(res.text[:300])
+        return []
 
-        # tunggu render JS
-        page.wait_for_load_state("networkidle")
-        time.sleep(10)
+    data_json = res.json()
 
-        # fallback selector wait (anti timeout crash)
+    jobs = []
+
+    # struktur API bisa beda → kita handle fleksibel
+    items = data_json.get("data", data_json.get("results", []))
+
+    for item in items:
         try:
-            page.wait_for_selector(
-                'a[href*="/lowongan-dalam-negeri/lowongan/"]',
-                timeout=60000
-            )
-        except:
-            print("⚠️ Selector belum muncul, lanjut paksa scrape...")
+            title = item.get("title", "")
+            company = item.get("company_name", "")
+            location = item.get("location", "")
+            link = "https://karirhub.kemnaker.go.id/lowongan/" + item.get("id", "")
+            salary = item.get("salary", "")
+            deadline = item.get("expiry_date", "")
+            image = item.get("company_logo", "")
 
-        # scroll untuk load data
-        for i in range(5):
-            page.mouse.wheel(0, 3000)
-            time.sleep(2)
+            jobs.append([
+                title,
+                company,
+                location,
+                link,
+                salary,
+                deadline,
+                "",
+                "",
+                image,
+                "",
+                ""
+            ])
 
-        print("🔍 Scraping data...")
+        except Exception as e:
+            print("❌ Error item:", e)
 
-        cards = page.query_selector_all(
-            'a[href*="/lowongan-dalam-negeri/lowongan/"]'
-        )
-
-        print(f"📦 Found cards: {len(cards)}")
-
-        for card in cards:
-            try:
-                parent = card.evaluate_handle(
-                    "el => el.closest('div.text-card-foreground')"
-                )
-
-                title = card.inner_text().strip()
-                link = "https://karirhub.kemnaker.go.id" + card.get_attribute("href")
-
-                company_el = parent.query_selector("p")
-                company = company_el.inner_text().strip() if company_el else ""
-
-                location_el = parent.query_selector(".text-gray-500")
-                location = location_el.inner_text().strip() if location_el else ""
-
-                salary = ""
-                for d in parent.query_selector_all("div"):
-                    txt = d.inner_text()
-                    if "Rp" in txt or "Dirahasiakan" in txt:
-                        salary = txt
-                        break
-
-                deadline = ""
-                full_text = parent.inner_text()
-                if "Lamar sebelum" in full_text:
-                    deadline = full_text.split("Lamar sebelum")[-1].split("\n")[0].strip()
-
-                img = parent.query_selector("img")
-                image = img.get_attribute("src") if img else ""
-
-                data.append([
-                    title,
-                    company,
-                    location,
-                    link,
-                    salary,
-                    deadline,
-                    "",
-                    "",
-                    image,
-                    "",
-                    ""
-                ])
-
-            except Exception as e:
-                print("❌ Error card:", e)
-
-        browser.close()
-
-    return data
+    return jobs
 
 
 # =========================
-# UPLOAD TO GOOGLE SHEETS
+# UPLOAD TO SHEETS
 # =========================
 def upload_to_sheets(data):
     if not data:
-        print("⚠️ No data found, skip upload")
+        print("⚠️ No data found")
         return
 
     sheet = connect_sheet()
 
-    print("📤 Uploading to Google Sheets...")
+    print(f"📤 Uploading {len(data)} rows...")
 
     for row in data:
         sheet.append_row(row)
 
-    print(f"✅ SUCCESS: {len(data)} rows uploaded")
+    print("✅ DONE")
 
 
 # =========================
 # MAIN
 # =========================
 if __name__ == "__main__":
-    print("🚀 SCRAPER STARTED")
+    print("🚀 API SCRAPER START")
 
-    jobs = scrape_karirhub()
+    jobs = fetch_jobs()
 
-    print(f"📊 Total scraped: {len(jobs)}")
+    print(f"📊 Total: {len(jobs)}")
 
     upload_to_sheets(jobs)
 
-    print("🎉 DONE")
+    print("🎉 FINISH")
