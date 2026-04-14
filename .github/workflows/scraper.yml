@@ -2,8 +2,6 @@ name: Scrape Karirhub
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 * * * *"  # tiap 1 jam
 
 jobs:
   scrape:
@@ -12,6 +10,13 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Debug folder
+        run: |
+          echo "CURRENT DIR:"
+          pwd
+          echo "FILES:"
+          ls -R
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -23,10 +28,9 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps
 
-      - name: Debug files
-        run: ls -R
-
-      - name: Run scraper
+      - name: Run scraper (FORCE PATH)
         env:
           GOOGLE_CREDS: ${{ secrets.GOOGLE_CREDS }}
-        run: python scraper.py
+        run: |
+          echo "RUNNING PYTHON..."
+          python ./scraper.py
