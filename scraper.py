@@ -1,116 +1,97 @@
-import requests
 import time
-import os
-import json
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from playwright.sync_api import sync_playwright
 
-# =========================
-# GOOGLE SHEETS CONNECT
-# =========================
-def connect_sheet():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
+def scrape_karirhub():
+    data = []
 
-    creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,  # WAJIB TRUE di GitHub Actions
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
 
-    client = gspread.authorize(creds)
+        page = browser.new_page()
 
-    sheet = client.open_by_key(
-        "170IS8O3Yyj6y1zFhLbD7s9JssVvn2Z5LPm_yE6vZOMw"
-    ).worksheet("Sheet1")
+        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
 
-    return sheet
+        print("🌐 Membuka website...")
+        page.goto(url, timeout=60000)
 
+        # FIX: jangan langsung wait selector (sering timeout)
+        page.wait_for_load_state("domcontentloaded")
+        time.sleep(10)  # kasih waktu render JS
 
-# =========================
-# FETCH API DATA
-# =========================
-def fetch_jobs():
-    url = "https://karirhub.kemnaker.go.id/api/lowongan?limit=50&page=1"
+        print("🔍 Mengambil data...")
 
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
-    }
+        # ambil langsung card container (lebih stabil)
+        cards = page.query_selector_all("div.text-card-foreground")
 
-    print("🌐 Fetching API data...")
+        print(f"📦 Total cards ditemukan: {len(cards)}")
 
-    res = requests.get(url, headers=headers, timeout=30)
+        for card in cards:
+            try:
+                # TITLE + LINK
+                title_el = card.query_selector("h4 a")
+                title = title_el.inner_text().strip() if title_el else "-"
+                link = "https://karirhub.kemnaker.go.id" + title_el.get_attribute("href") if title_el else "-"
 
-    if res.status_code != 200:
-        print("❌ Failed API:", res.status_code)
-        print(res.text[:300])
-        return []
+                # COMPANY
+                company_el = card.query_selector("p.font-normal")
+                company = company_el.inner_text().strip() if company_el else "-"
 
-    data_json = res.json()
+                # LOCATION
+                location_el = card.query_selector(".text-gray-500")
+                location = location_el.inner_text().strip() if location_el else "-"
 
-    jobs = []
+                # SALARY
+                salary = "-"
+                for d in card.query_selector_all("div"):
+                    txt = d.inner_text()
+                    if "Rp" in txt or "Dirahasiakan" in txt:
+                        salary = txt
+                        break
 
-    # struktur API bisa beda → kita handle fleksibel
-    items = data_json.get("data", data_json.get("results", []))
+                # DEADLINE
+                full_text = card.inner_text()
+                deadline = "-"
+                if "Lamar sebelum" in full_text:
+                    deadline = full_text.split("Lamar sebelum")[-1].split("\n")[0].strip()
 
-    for item in items:
-        try:
-            title = item.get("title", "")
-            company = item.get("company_name", "")
-            location = item.get("location", "")
-            link = "https://karirhub.kemnaker.go.id/lowongan/" + item.get("id", "")
-            salary = item.get("salary", "")
-            deadline = item.get("expiry_date", "")
-            image = item.get("company_logo", "")
+                # IMAGE
+                img_el = card.query_selector("img")
+                image = img_el.get_attribute("src") if img_el else "-"
 
-            jobs.append([
-                title,
-                company,
-                location,
-                link,
-                salary,
-                deadline,
-                "",
-                "",
-                image,
-                "",
-                ""
-            ])
+                data.append({
+                    "Title": title,
+                    "Company": company,
+                    "Location": location,
+                    "Link": link,
+                    "Salary": salary,
+                    "Deadline": deadline,
+                    "Level": "-",
+                    "Employment Type": "-",
+                    "Image URL": image,
+                    "Alumni": "-",
+                    "Alumni Photo Profile": "-"
+                })
 
-        except Exception as e:
-            print("❌ Error item:", e)
+            except Exception as e:
+                print("❌ Error card:", e)
 
-    return jobs
+        browser.close()
 
-
-# =========================
-# UPLOAD TO SHEETS
-# =========================
-def upload_to_sheets(data):
-    if not data:
-        print("⚠️ No data found")
-        return
-
-    sheet = connect_sheet()
-
-    print(f"📤 Uploading {len(data)} rows...")
-
-    for row in data:
-        sheet.append_row(row)
-
-    print("✅ DONE")
+    return data
 
 
-# =========================
-# MAIN
-# =========================
+def save_to_excel(data):
+    import pandas as pd
+
+    df = pd.DataFrame(data)
+    df.to_excel("karirhub_jobs.xlsx", index=False)
+
+    print(f"✅ Berhasil simpan {len(data)} data")
+
+
 if __name__ == "__main__":
-    print("🚀 API SCRAPER START")
-
-    jobs = fetch_jobs()
-
-    print(f"📊 Total: {len(jobs)}")
-
-    upload_to_sheets(jobs)
-
-    print("🎉 FINISH")
+    jobs = scrape_karirhub()
+    save_to_excel(jobs)
