@@ -1,27 +1,30 @@
-name: Karirhub Scraper
+name: Scrape Karirhub
 
 on:
-  schedule:
-    - cron: "0 * * * *"
   workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"  # tiap 1 jam
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          python -m playwright install
+          python -m playwright install --with-deps
+
+      - name: Debug files
+        run: ls -R
 
       - name: Run scraper
         env:
