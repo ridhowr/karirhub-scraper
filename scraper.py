@@ -6,6 +6,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
 
 
+# =========================
+# CONNECT GOOGLE SHEETS
+# =========================
 def connect_sheet():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -17,67 +20,79 @@ def connect_sheet():
 
     client = gspread.authorize(creds)
 
-    return client.open_by_key(
+    sheet = client.open_by_key(
         "170IS8O3Yyj6y1zFhLbD7s9JssVvn2Z5LPm_yE6vZOMw"
     ).worksheet("Sheet1")
 
+    return sheet
 
+
+# =========================
+# SCRAPER FUNCTION
+# =========================
 def scrape_karirhub():
     data = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox"]
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
         )
 
         page = browser.new_page()
 
-        print("🌐 Open website...")
-        page.goto(
-            "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan",
-            timeout=60000
-        )
+        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
 
-        # 🔥 FIX UTAMA (TANPA wait_for_selector)
+        print("🌐 Open website...")
+        page.goto(url, timeout=60000)
+
+        # 🔥 FIX UTAMA (ANTI TIMEOUT)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_load_state("networkidle")
 
         time.sleep(12)
 
-        print("🔍 Scraping...")
+        # DEBUG (optional, bisa dihapus nanti)
+        page.screenshot(path="debug.png", full_page=True)
+
+        print("🔍 Scraping data...")
 
         cards = page.query_selector_all("div.text-card-foreground")
 
-        print(f"📦 Found: {len(cards)} cards")
+        print(f"📦 Total cards ditemukan: {len(cards)}")
 
         for card in cards:
             try:
+                # TITLE + LINK
                 title_el = card.query_selector("h4 a")
+                title = title_el.inner_text().strip() if title_el else ""
+                link = "https://karirhub.kemnaker.go.id" + title_el.get_attribute("href") if title_el else ""
 
-                title = title_el.inner_text().strip() if title_el else "-"
-                link = "https://karirhub.kemnaker.go.id" + title_el.get_attribute("href") if title_el else "-"
+                # COMPANY
+                company_el = card.query_selector("p.font-normal")
+                company = company_el.inner_text().strip() if company_el else ""
 
-                company_el = card.query_selector("p")
-                company = company_el.inner_text().strip() if company_el else "-"
-
+                # LOCATION
                 location_el = card.query_selector(".text-gray-500")
-                location = location_el.inner_text().strip() if location_el else "-"
+                location = location_el.inner_text().strip() if location_el else ""
 
-                salary = "-"
+                # SALARY
+                salary = ""
                 for d in card.query_selector_all("div"):
                     txt = d.inner_text()
                     if "Rp" in txt or "Dirahasiakan" in txt:
                         salary = txt
                         break
 
-                deadline = "-"
-                text = card.inner_text()
-                if "Lamar sebelum" in text:
-                    deadline = text.split("Lamar sebelum")[-1].split("\n")[0].strip()
+                # DEADLINE
+                full_text = card.inner_text()
+                deadline = ""
+                if "Lamar sebelum" in full_text:
+                    deadline = full_text.split("Lamar sebelum")[-1].split("\n")[0].strip()
 
-                img = card.query_selector("img")
-                image = img.get_attribute("src") if img else "-"
+                # IMAGE
+                img_el = card.query_selector("img")
+                image = img_el.get_attribute("src") if img_el else ""
 
                 data.append([
                     title,
@@ -86,34 +101,49 @@ def scrape_karirhub():
                     link,
                     salary,
                     deadline,
-                    "-",
-                    "-",
+                    "",
+                    "",
                     image,
-                    "-",
-                    "-"
+                    "",
+                    ""
                 ])
 
             except Exception as e:
-                print("❌ Error:", e)
+                print("❌ Error card:", e)
 
         browser.close()
 
     return data
 
 
-def upload(data):
+# =========================
+# UPLOAD TO GOOGLE SHEETS
+# =========================
+def upload_to_sheet(data):
     if not data:
-        print("⚠️ No data")
+        print("⚠️ No data ditemukan")
         return
 
     sheet = connect_sheet()
 
+    print(f"📤 Uploading {len(data)} rows...")
+
     for row in data:
         sheet.append_row(row)
 
-    print(f"✅ Uploaded {len(data)} rows")
+    print("✅ Upload selesai")
 
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
+    print("🚀 SCRAPER START (VERSION FINAL)")
+
     jobs = scrape_karirhub()
-    upload(jobs)
+
+    print(f"📊 Total scraped: {len(jobs)}")
+
+    upload_to_sheet(jobs)
+
+    print("🎉 DONE")
