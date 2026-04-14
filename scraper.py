@@ -2,7 +2,6 @@ import time
 import os
 import json
 import gspread
-import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
 
@@ -28,41 +27,64 @@ def connect_sheet():
 
 
 # =========================
-# SCRAPER
+# SCRAPER FUNCTION
 # =========================
 def scrape_karirhub():
     data = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+
         page = browser.new_page()
 
+        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
+
         print("🌐 Open website...")
-        page.goto("https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan", timeout=60000)
+        page.goto(url, timeout=60000)
 
-        page.wait_for_selector('a[href*="/lowongan-dalam-negeri/lowongan/"]')
+        # tunggu render JS
+        page.wait_for_load_state("networkidle")
+        time.sleep(10)
 
-        # scroll load more
-        for _ in range(5):
+        # fallback selector wait (anti timeout crash)
+        try:
+            page.wait_for_selector(
+                'a[href*="/lowongan-dalam-negeri/lowongan/"]',
+                timeout=60000
+            )
+        except:
+            print("⚠️ Selector belum muncul, lanjut paksa scrape...")
+
+        # scroll untuk load data
+        for i in range(5):
             page.mouse.wheel(0, 3000)
             time.sleep(2)
 
         print("🔍 Scraping data...")
 
-        cards = page.query_selector_all('a[href*="/lowongan-dalam-negeri/lowongan/"]')
+        cards = page.query_selector_all(
+            'a[href*="/lowongan-dalam-negeri/lowongan/"]'
+        )
+
+        print(f"📦 Found cards: {len(cards)}")
 
         for card in cards:
             try:
-                parent = card.evaluate_handle("el => el.closest('div.text-card-foreground')")
+                parent = card.evaluate_handle(
+                    "el => el.closest('div.text-card-foreground')"
+                )
 
                 title = card.inner_text().strip()
                 link = "https://karirhub.kemnaker.go.id" + card.get_attribute("href")
 
                 company_el = parent.query_selector("p")
-                company = company_el.inner_text() if company_el else ""
+                company = company_el.inner_text().strip() if company_el else ""
 
                 location_el = parent.query_selector(".text-gray-500")
-                location = location_el.inner_text() if location_el else ""
+                location = location_el.inner_text().strip() if location_el else ""
 
                 salary = ""
                 for d in parent.query_selector_all("div"):
@@ -94,7 +116,7 @@ def scrape_karirhub():
                 ])
 
             except Exception as e:
-                print("Error:", e)
+                print("❌ Error card:", e)
 
         browser.close()
 
@@ -102,9 +124,13 @@ def scrape_karirhub():
 
 
 # =========================
-# UPLOAD TO SHEETS
+# UPLOAD TO GOOGLE SHEETS
 # =========================
 def upload_to_sheets(data):
+    if not data:
+        print("⚠️ No data found, skip upload")
+        return
+
     sheet = connect_sheet()
 
     print("📤 Uploading to Google Sheets...")
@@ -112,12 +138,19 @@ def upload_to_sheets(data):
     for row in data:
         sheet.append_row(row)
 
-    print(f"✅ Done: {len(data)} rows uploaded")
+    print(f"✅ SUCCESS: {len(data)} rows uploaded")
 
 
 # =========================
 # MAIN
 # =========================
 if __name__ == "__main__":
+    print("🚀 SCRAPER STARTED")
+
     jobs = scrape_karirhub()
+
+    print(f"📊 Total scraped: {len(jobs)}")
+
     upload_to_sheets(jobs)
+
+    print("🎉 DONE")
