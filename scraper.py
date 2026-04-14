@@ -7,6 +7,14 @@ from playwright.sync_api import sync_playwright
 
 
 # =========================
+# DEBUG (WAJIB)
+# =========================
+print("🚀 VERSION FINAL RUNNING")
+print("📂 FILE:", __file__)
+print("📁 DIR:", os.getcwd())
+
+
+# =========================
 # CONNECT GOOGLE SHEETS
 # =========================
 def connect_sheet():
@@ -28,7 +36,7 @@ def connect_sheet():
 
 
 # =========================
-# SCRAPER FUNCTION
+# SCRAPER
 # =========================
 def scrape_karirhub():
     data = []
@@ -41,25 +49,23 @@ def scrape_karirhub():
 
         page = browser.new_page()
 
-        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
-
         print("🌐 Open website...")
-        page.goto(url, timeout=60000)
+        page.goto(
+            "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan",
+            timeout=60000
+        )
 
-        # 🔥 FIX UTAMA (ANTI TIMEOUT)
+        # 🔥 FIX UTAMA (TANPA wait_for_selector)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_load_state("networkidle")
 
         time.sleep(12)
 
-        # DEBUG (optional, bisa dihapus nanti)
-        page.screenshot(path="debug.png", full_page=True)
-
-        print("🔍 Scraping data...")
+        print("🔍 Scraping...")
 
         cards = page.query_selector_all("div.text-card-foreground")
 
-        print(f"📦 Total cards ditemukan: {len(cards)}")
+        print(f"📦 Total cards: {len(cards)}")
 
         for card in cards:
             try:
@@ -85,8 +91,8 @@ def scrape_karirhub():
                         break
 
                 # DEADLINE
-                full_text = card.inner_text()
                 deadline = ""
+                full_text = card.inner_text()
                 if "Lamar sebelum" in full_text:
                     deadline = full_text.split("Lamar sebelum")[-1].split("\n")[0].strip()
 
@@ -117,7 +123,7 @@ def scrape_karirhub():
 
 
 # =========================
-# UPLOAD TO GOOGLE SHEETS
+# UPLOAD GOOGLE SHEETS
 # =========================
 def upload_to_sheet(data):
     if not data:
@@ -126,7 +132,7 @@ def upload_to_sheet(data):
 
     sheet = connect_sheet()
 
-    print(f"📤 Uploading {len(data)} rows...")
+    print(f"📤 Upload {len(data)} rows...")
 
     for row in data:
         sheet.append_row(row)
@@ -138,12 +144,7 @@ def upload_to_sheet(data):
 # MAIN
 # =========================
 if __name__ == "__main__":
-    print("🚀 SCRAPER START (VERSION FINAL)")
-
     jobs = scrape_karirhub()
-
     print(f"📊 Total scraped: {len(jobs)}")
-
     upload_to_sheet(jobs)
-
     print("🎉 DONE")
