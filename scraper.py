@@ -6,9 +6,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
 
 
-# =========================
-# GOOGLE SHEETS CONNECT
-# =========================
 def connect_sheet():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -20,53 +17,48 @@ def connect_sheet():
 
     client = gspread.authorize(creds)
 
-    sheet = client.open_by_key(
+    return client.open_by_key(
         "170IS8O3Yyj6y1zFhLbD7s9JssVvn2Z5LPm_yE6vZOMw"
     ).worksheet("Sheet1")
 
-    return sheet
 
-
-# =========================
-# SCRAPER
-# =========================
 def scrape_karirhub():
     data = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
+            args=["--no-sandbox"]
         )
 
         page = browser.new_page()
 
-        url = "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan"
-
         print("🌐 Open website...")
-        page.goto(url, timeout=60000)
+        page.goto(
+            "https://karirhub.kemnaker.go.id/lowongan-dalam-negeri/lowongan",
+            timeout=60000
+        )
 
-        # STABIL WAIT (INI KUNCI FIX ERROR KAMU)
+        # 🔥 FIX UTAMA (TANPA wait_for_selector)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_load_state("networkidle")
+
         time.sleep(12)
 
-        # DEBUG (opsional kalau error lagi)
-        page.screenshot(path="debug.png", full_page=True)
-
-        print("🔍 Scraping cards...")
+        print("🔍 Scraping...")
 
         cards = page.query_selector_all("div.text-card-foreground")
 
-        print(f"📦 Total cards: {len(cards)}")
+        print(f"📦 Found: {len(cards)} cards")
 
         for card in cards:
             try:
                 title_el = card.query_selector("h4 a")
+
                 title = title_el.inner_text().strip() if title_el else "-"
                 link = "https://karirhub.kemnaker.go.id" + title_el.get_attribute("href") if title_el else "-"
 
-                company_el = card.query_selector("p.font-normal")
+                company_el = card.query_selector("p")
                 company = company_el.inner_text().strip() if company_el else "-"
 
                 location_el = card.query_selector(".text-gray-500")
@@ -79,13 +71,13 @@ def scrape_karirhub():
                         salary = txt
                         break
 
-                full_text = card.inner_text()
                 deadline = "-"
-                if "Lamar sebelum" in full_text:
-                    deadline = full_text.split("Lamar sebelum")[-1].split("\n")[0].strip()
+                text = card.inner_text()
+                if "Lamar sebelum" in text:
+                    deadline = text.split("Lamar sebelum")[-1].split("\n")[0].strip()
 
-                img_el = card.query_selector("img")
-                image = img_el.get_attribute("src") if img_el else "-"
+                img = card.query_selector("img")
+                image = img.get_attribute("src") if img else "-"
 
                 data.append([
                     title,
@@ -102,41 +94,26 @@ def scrape_karirhub():
                 ])
 
             except Exception as e:
-                print("❌ Error card:", e)
+                print("❌ Error:", e)
 
         browser.close()
 
     return data
 
 
-# =========================
-# UPLOAD TO GOOGLE SHEETS
-# =========================
-def upload_to_sheet(data):
+def upload(data):
     if not data:
-        print("⚠️ No data found")
+        print("⚠️ No data")
         return
 
     sheet = connect_sheet()
 
-    print(f"📤 Uploading {len(data)} rows to Google Sheets...")
-
     for row in data:
         sheet.append_row(row)
 
-    print("✅ DONE UPLOAD")
+    print(f"✅ Uploaded {len(data)} rows")
 
 
-# =========================
-# MAIN
-# =========================
 if __name__ == "__main__":
-    print("🚀 SCRAPER START")
-
     jobs = scrape_karirhub()
-
-    print(f"📊 Total scraped: {len(jobs)}")
-
-    upload_to_sheet(jobs)
-
-    print("🎉 FINISH SUCCESS")
+    upload(jobs)
